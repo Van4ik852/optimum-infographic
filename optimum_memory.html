@@ -1,0 +1,355 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RLNC: The Web3 Code King</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      text-align: center;
+      background: linear-gradient(135deg, #81d4fa, #0288d1);
+      margin: 0;
+      padding: 20px;
+      color: #fff;
+    }
+    h1 {
+      font-size: 2.5em;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      animation: fadeIn 1s ease-out;
+    }
+    p {
+      font-size: 1.2em;
+      color: #e1f5fe;
+      margin-bottom: 20px;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin: 20px 0;
+    }
+    select, button {
+      padding: 10px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      background: #0277bd;
+      color: #fff;
+      cursor: pointer;
+      transition: transform 0.2s, background 0.3s;
+    }
+    select:hover, button:hover {
+      background: #01579b;
+      transform: scale(1.05);
+    }
+    #loss {
+      width: 180px;
+      accent-color: #0288d1;
+    }
+    #lossValue {
+      font-weight: bold;
+      color: #fff;
+    }
+    #info {
+      margin: 20px auto;
+      padding: 10px;
+      font-size: 16px;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 8px;
+      max-width: 500px;
+      animation: fadeIn 0.5s;
+    }
+    #stats {
+      font-size: 14px;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 8px;
+      border-radius: 8px;
+      display: inline-block;
+    }
+    #legend {
+      font-size: 12px;
+      color: #e1f5fe;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 8px;
+      position: fixed;
+      bottom: 10px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    canvas {
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      margin: 10px auto;
+      display: block;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    @keyframes flicker {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+    @media (max-width: 600px) {
+      h1 { font-size: 1.8em; }
+      p { font-size: 1em; }
+      select, button { font-size: 14px; padding: 8px 15px; }
+      #info { font-size: 14px; }
+      canvas { width: 100%; height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <h1>RLNC: The Web3 Code King</h1>
+  <p>Compare RLNC’s power for blockchain with Reed-Solomon and Fountain!</p>
+  <div class="controls">
+    <select id="codeType" onchange="highlightSelection()">
+      <option value="rlnc">RLNC</option>
+      <option value="reed-solomon">Reed-Solomon</option>
+      <option value="fountain">Fountain</option>
+    </select>
+    <div>
+      <label>Packet Loss (%):</label>
+      <input type="range" id="loss" min="0" max="50" value="20">
+      <span id="lossValue">20%</span>
+    </div>
+    <button onclick="startSimulation()">Start Simulation</button>
+  </div>
+  <div id="info"></div>
+  <div id="stats"></div>
+  <div id="legend">Nodes: Network peers | Lines: Data channels | Red dots: Packets | Green flash: Recovered | Orange flicker: Lost</div>
+  <script>
+    let nodes = [];
+    let packets = [];
+    let code = 'rlnc';
+    let packetLoss = 20;
+    let simulationRunning = false;
+    let stats = { successful: 0, lost: 0 };
+    const maxPacketsPerCycle = 100; // Limit packets per cycle
+
+    function setup() {
+      createCanvas(500, 300);
+      background(255);
+      for (let i = 0; i < 5; i++) {
+        nodes.push({ x: random(50, 450), y: random(50, 250), packets: 10, active: false });
+      }
+      // Initialize packets
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          packets.push(new Packet(nodes[i], nodes[j], packetLoss, code));
+          packets.push(new Packet(nodes[j], nodes[i], packetLoss, code));
+        }
+      }
+    }
+
+    function draw() {
+      background(255);
+      stroke(0, 50);
+      strokeWeight(1);
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          line(nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y);
+        }
+      }
+      for (let i = 0; i < nodes.length; i++) {
+        fill(nodes[i].active ? [100, 181, 246] : [66, 165, 245]);
+        ellipse(nodes[i].x, nodes[i].y, nodes[i].active ? 25 : 20, nodes[i].active ? 25 : 20);
+      }
+      if (simulationRunning) {
+        for (let p of packets) {
+          p.update();
+          p.display();
+        }
+      }
+    }
+
+    class Packet {
+      constructor(start, end, loss, code) {
+        this.start = start;
+        this.end = end;
+        this.pos = { x: start.x, y: start.y };
+        this.speed = code === 'rlnc' ? 5 : code === 'reed-solomon' ? 2 : 3;
+        this.lost = random(100) < loss;
+        this.progress = 0;
+        this.code = code;
+        this.recovered = false;
+        this.failed = false;
+      }
+      update() {
+        if (!this.lost || this.recovered) {
+          let dx = this.end.x - this.pos.x;
+          let dy = this.end.y - this.pos.y;
+          let dist = sqrt(dx * dx + dy * dy);
+          this.progress += this.speed / dist;
+          if (dist > this.speed) {
+            this.pos.x += (dx / dist) * this.speed;
+            this.pos.y += (dy / dist) * this.speed;
+            this.start.active = true;
+            this.end.active = true;
+          } else {
+            // Packet reached destination, reset for cycle
+            if (!this.recovered) stats.successful++;
+            this.reset();
+          }
+        } else if (this.code === 'rlnc' && random(100) < 70 && this.progress < 0.5) {
+          this.recovered = true;
+          this.lost = false;
+        } else if (this.code === 'reed-solomon' && random(100) < 30 && this.progress < 0.5) {
+          this.recovered = true;
+          this.lost = false;
+        } else if (this.code === 'fountain' && random(100) < 10 && this.progress < 0.5) {
+          this.recovered = true;
+          this.lost = false;
+        } else if (this.progress < 0.5) {
+          let dx = this.end.x - this.pos.x;
+          let dy = this.end.y - this.pos.y;
+          let dist = sqrt(dx * dx + dy * dy);
+          this.progress += this.speed / dist;
+          this.pos.x += (dx / dist) * this.speed;
+          this.pos.y += (dy / dist) * this.speed;
+        } else {
+          // Packet lost, reset for cycle
+          if (!this.failed) {
+            stats.lost++;
+            this.failed = true;
+          }
+          this.reset();
+        }
+      }
+      display() {
+        if (this.progress < 0.5 || (!this.lost && !this.failed) || this.recovered) {
+          if (this.recovered) {
+            fill(0, 200, 0); // Green for recovered
+            ellipse(this.pos.x, this.pos.y, 10, 10);
+          } else if (this.lost && this.progress < 0.5) {
+            fill(255, 165, 0); // Orange for lost
+            ellipse(this.pos.x, this.pos.y, 8, 8);
+            // Flicker effect
+            if (frameCount % 10 < 5) {
+              fill(255, 165, 0, 100);
+              ellipse(this.pos.x, this.pos.y, 10, 10);
+            }
+          } else {
+            fill(200, 0, 0); // Red for normal
+            ellipse(this.pos.x, this.pos.y, 8, 8);
+          }
+          noStroke();
+        }
+      }
+      reset() {
+        // Reset packet to start a new cycle
+        this.pos = { x: this.start.x, y: this.start.y };
+        this.progress = 0;
+        this.lost = random(100) < packetLoss;
+        this.recovered = false;
+        this.failed = false;
+        // Optionally swap start and end for variety
+        if (random(1) < 0.5) {
+          let temp = this.start;
+          this.start = this.end;
+          this.end = temp;
+        }
+      }
+    }
+
+    function startSimulation() {
+      code = document.getElementById('codeType').value;
+      packetLoss = document.getElementById('loss').value;
+      document.getElementById('lossValue').innerText = packetLoss + '%';
+      simulationRunning = true;
+      stats = { successful: 0, lost: 0 }; // Reset stats
+      packets = [];
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          packets.push(new Packet(nodes[i], nodes[j], packetLoss, code));
+          packets.push(new Packet(nodes[j], nodes[i], packetLoss, code));
+        }
+      }
+      let info = document.getElementById('info');
+      info.style.animation = 'fadeIn 0.5s';
+      if (code === 'rlnc') {
+        info.innerHTML = `RLNC: At ${packetLoss}% loss, RLNC’s recoding ensures fast, reliable data delivery for Web3!`;
+      } else if (code === 'reed-solomon') {
+        info.innerHTML = `Reed-Solomon: At ${packetLoss}% loss, slow recovery limits blockchain scalability.`;
+      } else {
+        info.innerHTML = `Fountain: At ${packetLoss}% loss, frequent packet drops reduce efficiency.`;
+      }
+      updateStats();
+    }
+
+    function updateStats() {
+      let statsDiv = document.getElementById('stats');
+      statsDiv.innerHTML = `Delivered: ${stats.successful} | Lost: ${stats.lost}`;
+      // Cap stats to avoid overflow
+      if (stats.successful + stats.lost >= maxPacketsPerCycle) {
+        stats.successful = Math.round((stats.successful / (stats.successful + stats.lost)) * maxPacketsPerCycle);
+        stats.lost = maxPacketsPerCycle - stats.successful;
+      }
+    }
+
+    function highlightSelection() {
+      let select = document.getElementById('codeType');
+      select.style.animation = 'pulse 0.5s';
+      setTimeout(() => select.style.animation = '', 500);
+    }
+
+    document.getElementById('loss').oninput = function() {
+      document.getElementById('lossValue').innerText = this.value + '%';
+      packetLoss = this.value; // Update packetLoss for new packets
+    };
+
+    setInterval(() => {
+      if (simulationRunning) updateStats();
+    }, 1000);
+  </script>
+</body>
+</html>
